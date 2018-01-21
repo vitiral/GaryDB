@@ -14,11 +14,17 @@ pub type BlockSize = u32;
 /// Offset location within the file. Think of this as a pointer.
 pub type Offset = u64;
 
-// calculated length of the header
+// ALLOC CONSTANTS
 pub const ALLOC_HEADER_LEN: u64 = 44;
 pub type AllocHeaderArray = [u8; ALLOC_HEADER_LEN as usize];
 pub const ROOT_OFFSET: u64 = 512;
 pub const ALLOC_HEADER_RESERVED: u64 = ROOT_OFFSET - ALLOC_HEADER_LEN;
+/// Initial size = 1MiB == 2^20
+pub const ALLOC_INITIAL_SIZE: u64 = 1_048_576;
+pub const ROOT_KEY_SIZE: u16 = 32;
+
+// NODE CONSTANTS
+pub const NODE_NUM_ITEMS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, PackedStruct)]
 #[packed_struct(bit_numbering = "msb0")]
@@ -79,11 +85,11 @@ pub struct BlockHeader {
     // TYPE ENUM + EXTRA
     #[packed_field(bits = "128..143", endian = "msb")]
     /// Extra data for the type
-    pub(crate) ty_extra1: u16,
+    pub(crate) ty_keysize: u16,
 
     #[packed_field(bits = "144..159", endian = "msb")]
     /// Extra data for the type
-    pub(crate) ty_extra2: u16,
+    pub(crate) ty_valuesize: u16,
 
     #[packed_field(bits = "160..175", endian = "msb")]
     /// Reserved bits, probably for extended types
@@ -125,14 +131,46 @@ pub enum BlockType {
 
 impl Default for AllocHeader {
     fn default() -> AllocHeader {
+        let heap = ROOT_OFFSET;
         AllocHeader {
             magic: MAGIC_NUMBER,
             version_major: VERSION_MAJOR,
             version_minor: VERSION_MINOR,
             version_patch: VERSION_PATCH,
             root: ROOT_OFFSET,
-            heap: ROOT_OFFSET,
-            capacity: 0,
+            heap: heap,
+            capacity: ALLOC_INITIAL_SIZE - heap,
+        }
+    }
+}
+
+/// Given the key size calculate how much capacity a node needs
+fn calc_capacity_node_sizekey_genvalue(key_size: u16) -> usize {
+    // It stores an array of _values_, which are just pointers
+    let values = NODE_NUM_ITEMS * size_of::<Offset>();
+    // It stores an array of _leaves_, which are just pointers
+    let leaves = (NODE_NUM_ITEMS - 1) * size_of::<Offset>();
+    // It stores an array of keys
+    let keys = NODE_NUM_ITEMS * key_size as usize;
+    values + leaves + keys
+}
+
+impl BlockHeader {
+    /// New SizedKeyGenValue, i.e. the default root
+    fn new_sized_key_gen_value(parent: Offset, is_root: bool, key_size: u16) -> BlockHeader {
+        let capacity = calc_capacity_node_sizekey_genvalue(key_size);
+        BlockHeader {
+            parent: parent,
+            deleted: false,
+            finished: false,
+            is_root: is_root,
+            _status_reserved: 0.into(),
+            ty: BlockType::SizedKeyGenValue,
+            _ty_reserved: 0x00,
+            ty_keysize: key_size,
+            ty_valuesize: 0x00,
+            capacity: capacity,
+            used: 0,
         }
     }
 }
@@ -147,8 +185,8 @@ fn sanity_header() {
         _status_reserved: 0.into(),
         ty: BlockType::GenKeyGenValue,
         _ty_reserved: 0x00,
-        ty_extra1: 0x00,
-        ty_extra2: 0x00,
+        ty_keysize: 0x00,
+        ty_valuesize: 0x00,
         capacity: 64,
         used: 64,
     };
