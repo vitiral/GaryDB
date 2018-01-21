@@ -1,6 +1,16 @@
 [package]
+authors = ["Garrett Berg <googberg@gmail.com>"]
 name = "GaryDB"
 version = "0.1.0"
-authors = ["Garrett Berg <googberg@gmail.com>"]
 
 [dependencies]
+bitflags = "1.0.1"
+bitmask = "0.4.0"
+byteorder = "1.2.1"
+chashmap = "2.2.0"
+enumset = "0.3.3"
+packed_struct = "0.1.0"
+packed_struct_codegen = "0.1.0"
+path_abs = "0.2.2"
+serde = "1.0.27"
+std_prelude = "0.2.9"
