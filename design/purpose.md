@@ -70,6 +70,48 @@ Some notes:
   This allows data to be written in parallel with other
   database operations.
 
+
+# SPC-types
+partof: REQ-purpose
+###
+These are the following primary types:
+- Allocator: structure with a single method, `allocate`, which gives back (new)
+  valid file regions to write to with their header filled in.
+- TransactionHandler: is the only type that can swap the _primary / secondary_
+  section of the Tree Nodes or set the _done_ flag for data nodes. When it does
+  this it:
+  - logs (to file) a StartTransaction, then the exact swaps it
+    will perform, then an EndTransaction.
+  - When all swaps have been completed it clears the log.
+  - Only one transaction can happen at a time, although there may be more than
+    one transaction handler.
+  - When a transaction is complete, all associated `transaction-tag`s are
+    removed from the cached-map.
+- Tree + Node: A Tree is a root `Node` with its children `Node`s. The "active
+  nodes" of the tree are kept in memory.
+  - Find a place to insert a key (this may be cached). If the key exists, check
+    that the `id` is equal to the key's current `id`. If so, accept the change
+    and increment the `id`.
+  - Any requested update gets a `tag` returned, which is just an atomically
+    incrementing u64. This tag is kept in a ConcurrentHashMap until the operation
+    is complete and all tags related to any operation are returned as part of
+    the function.
+    - The TransactionHandler is the only object that can remove tags from the map.
+  - IN PARALLEL: Allocate space for the value from the Allocator, store it's tag
+    and write the value of the data into the reserved space.
+  - Find a place in which to insert the key
+    - If a new child is needed, it must be allocated and put in the cache.
+  - IN PARALLEL: return the tags of the key+value. The operation is complete
+    _in the cache_ (but is not yet flushed to disk).
+  - Pool up these requests (in memory) for a set amount of time.
+  - Make a clone of current "active" and sync that to the _secondary_ keys on
+    disk. In the cache this becomes the new "outdated"
+  - Once sync is complete, send a request to the TransactionHandler to swap
+    primary/secondary keys.
+  - Note: there is the possibility that a key may point to data that is not
+    yet "done". To avoid this, an alternative API exists where you can flush
+    the data first and THEN insert the key using the data's offset.
+
 # SPC-layout
 GaryDB is a collection of `BTree`s, each of which is entirely independent
 of either it's parents or children.
